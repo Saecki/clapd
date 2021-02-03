@@ -1,4 +1,4 @@
-use std::{fmt, fs::File, process::exit};
+use std::{fmt, fs::File, path::Path, process::exit};
 use std::{io::BufWriter, io::Write, path::PathBuf};
 
 use clap::Clap;
@@ -117,12 +117,13 @@ impl fmt::Display for Service {
 
         string.push_str("\n[Service]\n");
         string.push_str(&format!("Type={}\n", &self.service_type));
-        string.push_str(&format!("ExecStart={}\n", &self.exec_start.display()));
+        let abs_exec_start = canonicalize(&self.exec_start);
+        string.push_str(&format!("ExecStart={}\n", abs_exec_start.display()));
         if let Some(e) = &self.exec_reload {
-            string.push_str(&format!("ExecReload={}\n", e.display()));
+            string.push_str(&format!("ExecReload={}\n", canonicalize(e).display()));
         }
         if let Some(e) = &self.exec_stop {
-            string.push_str(&format!("ExecStop={}\n", e.display()));
+            string.push_str(&format!("ExecStop={}\n", canonicalize(e).display()));
         }
         if let Some(r) = &self.restart {
             string.push_str(&format!("Restart={}\n", r));
@@ -170,4 +171,8 @@ fn main() {
             exit(1);
         }
     }
+}
+
+fn canonicalize(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or(path.to_owned())
 }
