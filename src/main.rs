@@ -118,6 +118,9 @@ impl fmt::Display for Service {
         string.push_str("\n[Service]\n");
         string.push_str(&format!("Type={}\n", &self.service_type));
         string.push_str(&format!("ExecStart={}\n", &self.exec_start.display()));
+        if let Some(e) = &self.exec_reload {
+            string.push_str(&format!("ExecReload={}\n", e.display()));
+        }
         if let Some(e) = &self.exec_stop {
             string.push_str(&format!("ExecStop={}\n", e.display()));
         }
