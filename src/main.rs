@@ -1,5 +1,5 @@
-use std::{fmt, fs::File, path::Path, process::exit};
-use std::{io::BufWriter, io::Write, path::PathBuf};
+use std::{fmt, fs::File, io::BufWriter, path::Path, process::exit};
+use std::{io::Write, path::PathBuf};
 
 use clap::Clap;
 
@@ -57,11 +57,13 @@ struct Service {
     // [Unit]
     #[clap(short, long)]
     description: Option<String>,
-    #[clap(long)]
+    #[clap(short, long)]
+    before: Vec<String>,
+    #[clap(short, long)]
     after: Vec<String>,
-    #[clap(long)]
+    #[clap(short, long)]
     conflicts: Vec<String>,
-    #[clap(long)]
+    #[clap(short, long)]
     requires: Vec<String>,
     #[clap(long)]
     on_failure: Option<String>,
@@ -85,22 +87,42 @@ struct Service {
     group: Option<String>,
 
     // [Install]
+    #[clap(short, long, default_value = "multi-user.target")]
+    wanted_by: String,
+
+    // Timer
+    #[clap(short = 'T', long)]
+    timer: bool,
     #[clap(short, long)]
-    wanted_by: Option<String>,
+    persistent: bool,
+    #[clap(long)]
+    on_calendar: Option<String>,
+    #[clap(long)]
+    on_unit_active_sec: Option<String>,
+    #[clap(long)]
+    on_unit_inactive_sec: Option<String>,
+    #[clap(long)]
+    accuracy_sec: Option<String>,
 
     #[clap(short, long, default_value = "/etc/systemd/system/")]
     output: PathBuf,
+
+    #[clap(long)]
+    no_check: bool,
     #[clap(short, long)]
     name: String,
 }
 
-impl fmt::Display for Service {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Service {
+    fn service(&self) -> String {
         let mut string = String::new();
 
         string.push_str("[Unit]\n");
         if let Some(d) = &self.description {
             string.push_str(&format!("Description={}\n", d));
+        }
+        for b in &self.before {
+            string.push_str(&format!("Before={}\n", b));
         }
         for a in &self.after {
             string.push_str(&format!("After={}\n", a));
@@ -139,35 +161,78 @@ impl fmt::Display for Service {
         }
 
         string.push_str("\n[Install]\n");
-        if let Some(w) = &self.wanted_by {
-            string.push_str(&format!("WantedBy={}\n", w));
-        }
+        string.push_str(&format!("WantedBy={}\n", self.wanted_by));
 
-        write!(f, "{}", string)
+        string
+    }
+
+    fn timer(&self) -> String {
+        let mut string = String::new();
+
+        string.push_str("[Unit]\n");
+
+        string.push_str("\n[Timer]\n");
+        if let Some(c) = &self.on_calendar {
+            string.push_str(&format!("OnCalendar={}\n", c));
+        }
+        if let Some(c) = &self.on_unit_active_sec {
+            string.push_str(&format!("OnUnitActiveSec={}\n", c));
+        }
+        if let Some(c) = &self.on_unit_inactive_sec {
+            string.push_str(&format!("OnUnitInactiveSec={}\n", c));
+        }
+        string.push_str(&format!("Persistent={}\n", self.persistent));
+
+        string.push_str("\n[Install]\n");
+        string.push_str("WantedBy=timers.target\n");
+
+        string
     }
 }
 
 fn main() {
     let opt = Service::parse();
 
-    if !opt.exec_start.exists() {
-        println!("executable {} does not exist", opt.exec_start.display());
+    if !opt.exec_start.exists() && !opt.no_check {
+        println!("Executable {} does not exist", opt.exec_start.display());
         exit(1);
     }
 
-    let path = opt.output.join(format!("{}.service", opt.name));
-    let mut writer = match File::create(&path) {
+    if opt.timer {
+        if opt.on_calendar.is_none() {
+            println!("Timer flag was specified but no OnCalendar");
+            exit(1);
+        }
+    }
+
+    let service_path = opt.output.join(format!("{}.service", opt.name));
+    let mut service_writer = match File::create(&service_path) {
         Ok(f) => BufWriter::new(f),
         Err(_) => {
-            println!("Error creating file {}", path.display());
+            println!("Error creating sevice file {}", service_path.display());
             exit(1);
         }
     };
-
-    match writer.write(opt.to_string().as_bytes()) {
-        Ok(_) => println!("Wrote service file {}", path.display()),
+    match service_writer.write(opt.service().as_bytes()) {
+        Ok(_) => println!("Wrote service file {}", service_path.display()),
         Err(_) => {
-            println!("Error writing file {}", path.display());
+            println!("Error writing service file {}", service_path.display());
+            exit(1);
+        }
+    }
+
+    let timer_path = opt.output.join(format!("{}.timer", opt.name));
+    let mut timer_writer = match File::create(&timer_path) {
+        Ok(f) => BufWriter::new(f),
+        Err(_) => {
+            println!("Error creating timer file {}", timer_path.display());
+            exit(1);
+        }
+    };
+    match timer_writer.write(opt.timer().as_bytes()) {
+        Ok(_) => println!("Wrote timer file {}", timer_path.display()),
+        Err(_) => {
+            println!("Error writing timer file {}", timer_path.display());
             exit(1);
         }
     }
